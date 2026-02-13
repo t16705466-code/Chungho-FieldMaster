@@ -1,40 +1,21 @@
 import streamlit as st
 import pandas as pd
-import gspread
-from google.oauth2 import service_account
 
-# 1. 페이지 제목 및 레이아웃
 st.set_page_config(page_title="청호방재 필드마스터", layout="wide")
-st.title("🚀 청호방재 현장관리 시스템")
+st.title("🚀 청호방재 현장관리 시스템 (엑셀 모드)")
 
-# 2. 구글 시트 연결 (금고에서 하나씩 꺼내 쓰기)
-def load_data():
-    try:
-        # 금고(Secrets)의 [gcp_service_account] 구역에서 정보를 가져옴
-        creds_info = st.secrets["gcp_service_account"]
-        spreadsheet_id = st.secrets["connections"]["spreadsheet_id"]
-        
-        creds = service_account.Credentials.from_service_account_info(creds_info)
-        scoped_creds = creds.with_scopes([
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ])
-        client = gspread.authorize(scoped_creds)
-        
-        # 시트 열기
-        sh = client.open_by_key(spreadsheet_id)
-        worksheet = sh.get_worksheet(0)
-        data = worksheet.get_all_records()
-        return pd.DataFrame(data)
-    except Exception as e:
-        st.error(f"⚠️ 연결 대기 중: {e}")
-        return None
+try:
+    # 깃허브에 올린 data.xlsx 파일을 읽습니다
+    # 첫 번째 시트(index 0)를 가져옵니다
+    df = pd.read_excel("data.xlsx", engine='openpyxl')
+    st.success("✅ 엑셀 데이터를 성공적으로 불러왔습니다!")
+    
+    st.metric("전체 등록 현장", f"{len(df)}개")
+    st.divider()
 
-# 3. 데이터 화면 표시
-df = load_data()
-if df is not None and not df.empty:
-    st.success("✅ 실시간 데이터 연동 성공!")
-    st.subheader("📋 현장 관리 리스트")
+    st.subheader("📋 현장 리스트")
     st.dataframe(df, use_container_width=True)
-else:
-    st.info("💡 오른쪽 아래 'Manage app' -> 'Settings' -> 'Secrets'에 열쇠를 다시 넣어주세요!")
+
+except Exception as e:
+    st.error(f"데이터를 불러올 수 없습니다: {e}")
+    st.info("깃허브에 'data.xlsx' 파일이 잘 올라가 있는지 확인해주세요.")
