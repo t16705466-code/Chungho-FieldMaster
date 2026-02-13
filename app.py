@@ -1,17 +1,18 @@
 import streamlit as st
 import pandas as pd
-from google.oauth2 import service_account
 import gspread
+from google.oauth2 import service_account
+import json
 
-# 페이지 설정
 st.set_page_config(page_title="청호방재 필드마스터", layout="wide")
 st.title("🚀 청호방재 현장관리 시스템")
 
 def load_data():
     try:
-        # 셋팅창(Secrets)에 저장된 정보를 불러옵니다
-        creds_info = st.secrets["gcp_service_account"]
-        spreadsheet_id = st.secrets["connections"]["spreadsheet_id"]
+        # 금고에서 한 줄로 된 정보를 가져와서 파싱합니다
+        creds_json = st.secrets["GCP_JSON"]
+        creds_info = json.loads(creds_json)
+        spreadsheet_id = st.secrets["SHEET_ID"]
         
         creds = service_account.Credentials.from_service_account_info(creds_info)
         scoped_creds = creds.with_scopes([
@@ -25,13 +26,11 @@ def load_data():
         data = worksheet.get_all_records()
         return pd.DataFrame(data)
     except Exception as e:
-        st.error(f"연결 대기 중입니다: {e}")
+        st.error(f"⚠️ 설정 대기 중: {e}")
+        st.info("오른쪽 Manage app -> Settings -> Secrets에 값을 넣어주세요.")
         return None
 
 df = load_data()
-
 if df is not None and not df.empty:
     st.success("✅ 실시간 데이터 연동 성공!")
     st.dataframe(df, use_container_width=True)
-else:
-    st.info("데이터를 불러오고 있습니다. 잠시만 기다려주세요.")
