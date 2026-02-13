@@ -4,14 +4,14 @@ import plotly.express as px
 from google.oauth2 import service_account
 import gspread
 
-# 페이지 설정
+# 1. 화면 제목
 st.set_page_config(page_title="청호방재 필드마스터", layout="wide")
+st.title("🚀 청호방재 현장관리 시스템")
 
-st.title("🚀 청호방재 현장관리 마스터")
-
-# 구글 시트 연결 함수
+# 2. 구글 시트 연결 (Secrets만 믿고 갑니다)
 def load_data():
     try:
+        # 사장님이 설정한 Secrets 정보를 가져옴
         creds_info = st.secrets["gcp_service_account"]
         spreadsheet_id = st.secrets["connections"]["spreadsheet_id"]
         
@@ -22,36 +22,25 @@ def load_data():
         ])
         client = gspread.authorize(scoped_creds)
         
+        # 시트 열기
         sh = client.open_by_key(spreadsheet_id)
-        worksheet = sh.get_worksheet(0) 
+        worksheet = sh.get_worksheet(0)
         data = worksheet.get_all_records()
         return pd.DataFrame(data)
     except Exception as e:
-        st.error(f"연결 오류: {e}")
+        st.error(f"연결 오류 발생: {e}")
         return None
 
-# 실행
+# 3. 화면에 데이터 뿌리기
 df = load_data()
 
 if df is not None and not df.empty:
-    st.success("✅ 데이터 연동 성공!")
-    
-    # 상단 요약
-    col1, col2 = st.columns(2)
-    col1.metric("전체 등록 현장", f"{len(df)}개")
-    col2.metric("시스템 상태", "정상")
-
-    st.divider()
-    
-    # 데이터 표
-    st.subheader("📋 실시간 현장 리스트")
+    st.success("✅ 구글 시트와 성공적으로 연결되었습니다!")
     st.dataframe(df, use_container_width=True)
     
-    # 그래프
-    st.subheader("📊 현황 분석")
-    # '점검상태' 컬럼이 있다면 그래프 생성
+    # 상태별 그래프 (열 이름에 맞게 자동 조정)
     status_col = '점검상태' if '점검상태' in df.columns else df.columns[-1]
     fig = px.pie(df, names=status_col, title="현장 진행 현황")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig)
 else:
-    st.info("구글 시트에서 데이터를 불러오고 있습니다...")
+    st.info("데이터를 불러오는 중입니다...")
