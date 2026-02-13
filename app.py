@@ -7,26 +7,41 @@ st.set_page_config(page_title="청호방재 필드마스터", layout="wide", ini
 
 st.markdown("""
     <style>
-    /* 전체 배경 흰색 및 글자색 검정 */
+    /* 전체 배경 흰색 및 기본 글자색 검정 */
     .stApp { background-color: #FFFFFF !important; }
     h1, h2, h3, h4, p, label, span, div { color: #000000 !important; }
     
-    /* [박제] 표 안의 셀 및 모든 버튼 배경색: 연한 하늘색 */
-    [data-testid="stDataEditor"] div[role="gridcell"], 
-    div.stButton > button {
-        background-color: #E3F2FD !important; /* 연한 하늘색 고정 */
+    /* [박제] 엑셀 데이터가 보이는 표 영역 전체 설정 */
+    /* 1. 데이터 셀 배경색: 연한 하늘색, 글씨: 검정 */
+    [data-testid="stDataEditor"] div[role="gridcell"] {
+        background-color: #E3F2FD !important; 
         color: #000000 !important;
-        border: 1px solid #BBDEFB !important; /* 선도 연한 파란색 계열 */
-        border-radius: 8px;
-        font-weight: bold;
+        border-bottom: 1px solid #BBDEFB !important;
+    }
+    
+    /* 2. 표 헤더(제목단) 배경색 및 글자색 */
+    [data-testid="stDataEditor"] div[role="columnheader"] {
+        background-color: #BBDEFB !important;
+        color: #000000 !important;
+        font-weight: bold !important;
     }
 
-    /* 버튼에 마우스 올렸을 때 */
+    /* [박제] 버튼 스타일 통일: 연한 하늘색 */
+    div.stButton > button {
+        width: 100%; 
+        background-color: #E3F2FD !important; 
+        color: #000000 !important;
+        border: 1px solid #BBDEFB !important; 
+        border-radius: 8px;
+        padding: 10px; 
+        font-weight: bold;
+    }
+    
     div.stButton > button:hover {
         background-color: #BBDEFB !important;
         border-color: #007AFF !important;
     }
-    
+
     /* 사이드바 스타일 */
     [data-testid="stSidebar"] { background-color: #F8F9FA !important; border-right: 1px solid #EEEEEE !important; }
     
@@ -49,6 +64,7 @@ def load_data():
         df = pd.DataFrame(columns=['ID', '관리번호', '진행상태', '현장명', '사업장주소', '계약금액', '관할서'])
         df.to_excel("data.xlsx", index=False)
     df = pd.read_excel("data.xlsx")
+    # ID 자동 부여 (에러 방지용)
     df['ID'] = range(1, len(df) + 1)
     df = apply_business_logic(df)
     try: c_df = pd.read_csv("contacts.csv").dropna(axis=1, how='all')
@@ -61,18 +77,12 @@ site_df, contact_df = load_data()
 if 'page' not in st.session_state: st.session_state.page = 'dashboard'
 if 'selected_site' not in st.session_state: st.session_state.selected_site = None
 
-# 3. 사이드바 메뉴
+# --- 사이드바 ---
 with st.sidebar:
     st.title("🛠️ 관리 메뉴")
     if st.button("🏠 메인 대시보드"): st.session_state.page = 'dashboard'; st.rerun()
     if st.button("🟡 견적 중 현장"): st.session_state.page = 'list_est'; st.rerun()
     if st.button("🔵 진행 중 현장"): st.session_state.page = 'list_ing'; st.rerun()
-    st.divider()
-    st.markdown("📂 **완공 현장 분류**")
-    categories = ["제조소_취급소", "옥내저장소", "옥외저장소", "옥내탱크", "옥외탱크", "지하탱크", "군부대", "도료류", "컨설팅"]
-    for cat in categories:
-        if st.button(f"▪️ {cat}"):
-            st.session_state.page = 'list_done'; st.session_state.category_filter = cat; st.rerun()
 
 # --- [페이지 1: 대시보드] ---
 if st.session_state.page == 'dashboard':
@@ -94,50 +104,37 @@ if st.session_state.page == 'dashboard':
     calendar_url = "https://calendar.google.com/calendar/embed?src=ko.south_korea%23holiday%40group.v.calendar.google.com"
     st.components.v1.iframe(calendar_url, height=400)
 
-# --- [페이지 2: 리스트/데이터베이스 관리] ---
-elif st.session_state.page in ['list_ing', 'list_est', 'list_done']:
-    title = "진행중" if st.session_state.page == 'list_ing' else "견적중" if st.session_state.page == 'list_est' else f"완공:{st.session_state.category_filter}"
+# --- [페이지 2: 리스트 관리 (하늘색 표 적용)] ---
+elif st.session_state.page in ['list_ing', 'list_est']:
+    title = "진행중" if st.session_state.page == 'list_ing' else "견적중"
     st.markdown(f"### 📂 {title} 데이터베이스")
     
-    # [수정] 표 상단에 바로가기 안내
-    st.info("💡 아래 표에서 '현장명'을 선택하고 [➡️ 이동] 버튼을 누르면 즉시 일지 페이지로 연결됩니다.")
-    
-    # 표 디자인 및 편집 (하늘색 배경 적용됨)
+    # 하늘색 배경의 데이터 에디터
     edited_df = st.data_editor(
         site_df.drop(columns=['계약금액']), 
         num_rows="dynamic", use_container_width=True, hide_index=True, key="master_editor"
     )
 
-    col_s, col_g = st.columns(2)
-    with col_s:
-        if st.button("💾 변경사항 저장"):
-            for col in edited_df.columns: site_df[col] = edited_df[col]
-            site_df.to_excel("data.xlsx", index=False)
-            st.success("저장 완료!"); st.rerun()
+    if st.button("💾 변경사항 저장"):
+        for col in edited_df.columns: site_df[col] = edited_df[col]
+        site_df.to_excel("data.xlsx", index=False)
+        st.success("저장 완료!"); st.rerun()
     
-    with col_g:
-        # 사장님이 요청하신 '빨간 체크' 기능을 대신할 빠른 이동 버튼
-        target = st.selectbox("📝 바로가기 현장 선택", edited_df['현장명'].unique())
-        if st.button(f"🚀 {target} 일지 페이지로 즉시 이동"):
-            st.session_state.selected_site = target; st.session_state.page = 'detail'; st.rerun()
+    target = st.selectbox("📝 이동할 현장 선택", edited_df['현장명'].unique())
+    if st.button(f"🚀 {target} 일지 페이지로 이동"):
+        st.session_state.selected_site = target; st.session_state.page = 'detail'; st.rerun()
 
 # --- [페이지 3: 상세 페이지] ---
 elif st.session_state.page == 'detail':
     if st.button("⬅️ 메인으로"): st.session_state.page = 'dashboard'; st.rerun()
     site_name = st.session_state.selected_site
     site_info = site_df[site_df['현장명'] == site_name].iloc[0]
-    
     st.markdown(f"### 🏢 {site_name}")
     st.write(f"📍 주소: {site_info.get('사업장주소','-')} | 🔢 관리번호: {site_info.get('관리번호','')}")
-    
     st.divider()
-    st.markdown("#### 💰 계약/견적 금액 관리")
     money = st.text_input("금액 수정", value=str(site_info.get('계약금액', '0')))
-    
-    st.markdown("#### 📝 업무 일지")
-    st.text_area("내용 입력", height=300)
-    
-    if st.button("💾 모든 내용 저장"):
+    st.text_area("📝 업무 일지 기록", height=300)
+    if st.button("💾 저장"):
         site_df.loc[site_df['현장명'] == site_name, '계약금액'] = money
         site_df.to_excel("data.xlsx", index=False)
         st.success("저장되었습니다.")
