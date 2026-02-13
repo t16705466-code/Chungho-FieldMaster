@@ -1,41 +1,15 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-from google.oauth2 import service_account
-import gspread
+[gcp_service_account]
+type = "service_account"
+project_id = "com-477109"
+private_key_id = "c3d8fc9cb4c1c8754b4b2ea7ed0c6830fb864651"
+private_key = "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCgum1gvzEpaPlD\nQZUp6HHA47U+VxCzPVw6x4AKkpYyyzgCh9/nWVI6JNngChyDYkjtIX2NbcCsbvki\nL8a9QX+zt4MsnEidcIN3KlKvSi1i3z4zaTq2MypQ25ynApzWLdzqZisdoamfOTfT\nYPh8z3BSsZWUy7hhvZHpYOllrYWj+wvNmzqURHiBpKhiJS58wXfAstISyGOPI3bN\ncYdf/c+Ep8oaEZo30uATHyVGcqidHIM3L0Er8osQLDXBTxAQxIkPwVduRda5Vypn\nUwKHu+NkInjGrGeDZZDJEa+280rLMcBmc9FIdCWmdYdCI010SordlXw5mKTHVJVL\nps5+nuAdAgMBAAECggEAFHxpODVrot9jifGAKCUdk/F8u+iP/dsvzWQj4J/ExM5H\nIiIcZUSVaPN30Qj+OmFwHHKyKdvCfO1GFC0/vlvsrBo9/hUgt5nMKoelSKdX4pbE\nEFHKGcgADZSi7Qc1uKIu2rImrl0DyCzG/fUJpwAvol1Kd0/XUp89dkq+ZOckNf1e\npj+MsfIUYocrcqmk2X7ay0VGQvqM0WTR+vs44aVayDuEQbOanhDT5mGJISbZqUmm\nPphJaNOd59A6qn6usysgdJShE3Jz21sDEdsOSrpgKrSwxQYxyExuzlUKj9gERWpG\nbZJY563ShEMzrVg2z4BZiJq41vlor7N7UV+wZ+6tVwKBgQDOhwtqsPb6wxlZqaUn\n/CZaZYw4bc9BKSye9On1d/Ykantbn+BBwlKIEIhHeIEw3yfpZtesR8Ci5uaV2NK/\n/AClFHiPCzBsoypaRUDowxiP+C4HPNytFIKYJhPCESnld+A43qgt4mo7NyFDwWJP\nMwvC5s/1xRxW3jyPxYfaUIE/GwKBgQDHOtFeLBDTTr9D5a+2O8LhbU/qobmqWbIx\RmC0FkTl9l0QTB0zXaEDvVghrpTqC9SRjVTUDn4AY83BILemV4J0jX+z3dMCG2Y3\ne/qGR8nRvfd1AeNfUyo1sUKV4Wcd3sHxH5l72MEHp+m9iFeSoGGM64NIKSVwQsO\nqpCufXf5JwKBgQCJjTYUZDLKxyBeMHf4Tp84u8ONXc2Y55R5dkNQowpELMtmNfBF\nu+f+CYzKlT7uTuKlOELS0qNBnCndiaCsD2paiGzXUKt63514rAFURYRZdwEo/uc3\nO57TOSEVsxrFY3bqSZmXneIE+G3mU6lneGcP82x0k0iRrsiFNRmLVO0QGwKBgQCT\nRuDFK/AYNQthJucY4N60hHliasF0s6/tiygrmJbAJLoxNQMVGK7Rs+P1qjg9OBeg\nrYi65iexJBZTIVuBpQk0HfH8RgwZb6XFkYRsWrvT7juHiZk3uBu2aGXquj50J0MU\nv+XsduWMgxLkeui56nwLeCK/Y5UnezgwVFh2FRxeWwKBgAku6JtLs9BiKHiI/v29\nTgx4KJO3OyP6ssRkPH+spw8lSHwy6WZ37b1AyoFcutfjikOaalL6aK9jLDAikj0q\npIX2gEqP84Nr/5NfuIwsjwzGq9qMbUNaVGuarP2CHoarRa3982XqKbH4g47GOPR4\nv7opbHR2wmhdC5f0XoBG/7Me\n-----END PRIVATE KEY-----\n"
+client_email = "chungho-manager@com-477109.iam.gserviceaccount.com"
+client_id = "108351200017935762103"
+auth_uri = "https://accounts.google.com/o/oauth2/auth"
+token_uri = "https://oauth2.googleapis.com/token"
+auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/chungho-manager%40com-477109.iam.gserviceaccount.com"
 
-# 1. 페이지 설정
-st.set_page_config(page_title="청호방재 필드마스터", layout="wide")
-st.title("🚀 청호방재 현장관리 시스템 (직접 연결 모드)")
-
-# 2. 구글 시트 직접 연결 함수
-def load_data():
-    try:
-        # 이미 설정하신 Secrets를 사용합니다 (로그인은 되어 있는 상태!)
-        creds_info = st.secrets["gcp_service_account"]
-        spreadsheet_id = st.secrets["connections"]["spreadsheet_id"]
-        
-        creds = service_account.Credentials.from_service_account_info(creds_info)
-        scoped_creds = creds.with_scopes([
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ])
-        client = gspread.authorize(scoped_creds)
-        
-        # 시트 열기
-        sh = client.open_by_key(spreadsheet_id)
-        worksheet = sh.get_worksheet(0)
-        data = worksheet.get_all_records()
-        return pd.DataFrame(data)
-    except Exception as e:
-        st.error(f"데이터 연결 중 오류: {e}")
-        return None
-
-# 3. 화면 표시
-df = load_data()
-
-if df is not None and not df.empty:
-    st.success("✅ 직접 연결에 성공했습니다!")
-    st.dataframe(df, use_container_width=True)
-else:
-    st.info("데이터를 불러오는 중입니다... (Secrets 설정을 확인해주세요)")
+[connections]
+spreadsheet_id = "1ePeHFQ2Ug-cbPu9nnuPK5AWxDDSnkZzKnvbj3L_wLas"
+drive_folder_id = "1aouAzoOXTJ1WiO1mgHeSjyjX1VfgCiO_"
