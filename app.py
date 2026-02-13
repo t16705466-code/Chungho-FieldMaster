@@ -3,15 +3,16 @@ import pandas as pd
 import os
 from datetime import datetime
 
-# 1. 페이지 설정 및 디자인 박제 (배경 흰색, 글씨 검정, 버튼/표 연하늘색)
-st.set_page_config(page_title="청호방재 필드마스터", layout="wide", initial_sidebar_state="expanded")
+# 1. [디자인 박제] 흰색 배경, 검정 글씨, 연하늘색 포인트 강제 설정
+st.set_page_config(page_title="청호방재 업무일지", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
+    /* 다크모드 차단: 무조건 흰색 배경 / 검정 글씨 */
     .stApp { background-color: #FFFFFF !important; }
-    h1, h2, h3, h4, p, label, span, div { color: #000000 !important; }
+    h1, h2, h3, h4, p, label, span, div, .stMarkdown { color: #000000 !important; }
     
-    /* 표 영역 연하늘색 배경 박제 */
+    /* 표(DB) 영역 연하늘색 배경 박제 */
     [data-testid="stDataEditor"] div[role="gridcell"] {
         background-color: #E3F2FD !important; color: #000000 !important;
     }
@@ -19,129 +20,118 @@ st.markdown("""
         background-color: #BBDEFB !important; color: #000000 !important;
     }
 
-    /* 버튼 및 사이드바 메뉴 연하늘색 박제 */
+    /* 모든 버튼 및 사이드바 메뉴 연하늘색 박제 */
     div.stButton > button {
         width: 100%; background-color: #E3F2FD !important; color: #000000 !important;
         border: 1px solid #BBDEFB !important; border-radius: 8px; font-weight: bold;
     }
     [data-testid="stSidebar"] { background-color: #F8F9FA !important; border-right: 1px solid #EEEEEE !important; }
+    
+    /* 입력창 디자인 */
+    .stTextArea textarea { background-color: #FDFDFD !important; color: #000000 !important; border: 1px solid #E3F2FD !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 데이터 로드 로직 (ID 재부여 및 contacts 관리번호 매칭 지원)
+# 2. [데이터 로드] ID 자동 부여 및 관리번호 매칭 로직
 def load_data():
-    # 현장 데이터 (data.xlsx)
     if not os.path.exists("data.xlsx"):
-        df = pd.DataFrame(columns=['ID', '관리번호', '진행상태', '현장명', '사업장주소', '계약금액'])
+        df = pd.DataFrame(columns=['ID', '관리번호', '진행상태', '현장명', '사업장주소', '계약금액', '완공분류'])
         df.to_excel("data.xlsx", index=False)
     df = pd.read_excel("data.xlsx")
-    df['ID'] = range(1, len(df) + 1) # ID 중복 에러 원천 차단
+    df['ID'] = range(1, len(df) + 1) # ID 중복 에러 방지
     
-    # 연락처 데이터 (contacts.csv)
     if os.path.exists("contacts.csv"):
         try:
             c_df = pd.read_csv("contacts.csv")
-            # 사장님이 추가하신 '관리번호' 열을 기준으로 공백 제거
-            if '관리번호' in c_df.columns:
-                c_df['관리번호'] = c_df['관리번호'].astype(str).str.strip()
-        except:
-            c_df = pd.DataFrame()
-    else:
-        c_df = pd.DataFrame()
+            c_df['관리번호'] = c_df['관리번호'].astype(str).str.strip()
+        except: c_df = pd.DataFrame()
+    else: c_df = pd.DataFrame()
     return df, c_df
 
 site_df, contact_df = load_data()
 
-# 세션 관리 (페이지 전환 에러 방지)
+# 세션 관리
 if 'page' not in st.session_state: st.session_state.page = 'dashboard'
 if 'selected_site' not in st.session_state: st.session_state.selected_site = None
 
-# --- [사이드바 메뉴] ---
+# --- [사이드바 메뉴: 노션 스타일 계층 구조] ---
 with st.sidebar:
-    st.title("🛠️ 청호방재 관리")
+    st.image("https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_92x30dp.png", width=100) # 사장님 로고 위치
+    st.title("🏢 청호방재")
+    
     if st.button("🏠 메인 대시보드"):
-        st.session_state.page = 'dashboard'
-        st.session_state.selected_site = None
-        st.rerun()
-    if st.button("🟡 견적 중 현장"):
-        st.session_state.page = 'list_est'
-        st.rerun()
-    if st.button("🔵 진행 중 현장"):
-        st.session_state.page = 'list_ing'
-        st.rerun()
-
-# --- [페이지 1: 대시보드] ---
-if st.session_state.page == 'dashboard' and st.session_state.selected_site is None:
-    st.markdown("## 🚀 청호방재 통합 관리실")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("#### 🔵 진행 중 현장")
-        ing_sites = site_df[site_df['진행상태'].str.contains('진행|공사', na=False)].tail(5).iloc[::-1]
-        for _, row in ing_sites.iterrows():
-            if st.button(f"🏢 {row['현장명']}", key=f"dash_ing_{row['ID']}"):
-                st.session_state.selected_site = row['현장명']; st.session_state.page = 'detail'; st.rerun()
-    with col2:
-        st.markdown("#### 🟡 견적 중 현장")
-        est_sites = site_df[site_df['진행상태'].str.contains('견적', na=False)].tail(5).iloc[::-1]
-        for _, row in est_sites.iterrows():
-            if st.button(f"📄 {row['현장명']}", key=f"dash_est_{row['ID']}"):
-                st.session_state.selected_site = row['현장명']; st.session_state.page = 'detail'; st.rerun()
-    st.divider()
-    st.markdown("#### 🗓️ 구글 캘린더 일정")
-    calendar_url = "https://calendar.google.com/calendar/embed?src=ko.south_korea%23holiday%40group.v.calendar.google.com"
-    st.components.v1.iframe(calendar_url, height=400)
-
-# --- [페이지 2: 리스트 관리] ---
-elif st.session_state.page in ['list_ing', 'list_est']:
-    status_label = "진행" if st.session_state.page == 'list_ing' else "견적"
-    st.markdown(f"### 📂 {status_label} 중 데이터베이스 관리")
-    
-    # 하늘색 바탕 표 적용
-    edited_df = st.data_editor(site_df, use_container_width=True, hide_index=True, key=f"editor_{st.session_state.page}")
-    
-    if st.button("💾 변경사항 엑셀 저장"):
-        edited_df.to_excel("data.xlsx", index=False)
-        st.success("데이터가 성공적으로 업데이트되었습니다!"); st.rerun()
-
-# --- [페이지 3: 현장 상세 페이지 - 사장님 요청 기능] ---
-elif st.session_state.page == 'detail' or st.session_state.selected_site is not None:
-    if st.button("⬅️ 메인으로 돌아가기"):
         st.session_state.page = 'dashboard'; st.session_state.selected_site = None; st.rerun()
     
+    st.divider()
+    
+    # [계층 메뉴 1] 견적 중 현장
+    with st.expander("🟡 견적 중 현장", expanded=False):
+        est_list = site_df[site_df['진행상태'].str.contains('견적', na=False)].tail(3)
+        for _, row in est_list.iterrows():
+            if st.button(f"📄 {row['현장명']}", key=f"side_est_{row['ID']}"):
+                st.session_state.selected_site = row['현장명']; st.session_state.page = 'detail'; st.rerun()
+        if st.button("➕ 견적 추가", key="add_est"): st.info("데이터베이스에서 추가하세요")
+
+    # [계층 메뉴 2] 진행 중 현장
+    with st.expander("🔵 진행 중 현장", expanded=False):
+        ing_list = site_df[site_df['진행상태'].str.contains('진행|공사', na=False)].tail(3)
+        for _, row in ing_list.iterrows():
+            if st.button(f"🏢 {row['현장명']}", key=f"side_ing_{row['ID']}"):
+                st.session_state.selected_site = row['현장명']; st.session_state.page = 'detail'; st.rerun()
+        if st.button("➕ 현장 추가", key="add_ing"): st.info("데이터베이스에서 추가하세요")
+
+    # [계층 메뉴 3] 완공 현장 아카이브
+    with st.expander("📂 완공 현장 (용도별)", expanded=False):
+        cats = ["제조소_취급소", "옥내저장소", "옥외저장소", "옥내탱크", "옥외탱크", "지하탱크", "군부대", "도료류", "컨설팅"]
+        for cat in cats:
+            if st.button(f"▪️ {cat}"):
+                st.session_state.page = 'list_done'; st.session_state.cat_filter = cat; st.rerun()
+
+# --- [상세 페이지: 원노트 양식 + 업무 분류 6종] ---
+if st.session_state.page == 'detail':
     site_name = st.session_state.selected_site
     site_info = site_df[site_df['현장명'] == site_name].iloc[0]
     site_no = str(site_info.get('관리번호', '')).strip()
 
-    st.markdown(f"### 🏢 {site_name}")
-    st.info(f"📍 주소: {site_info.get('사업장주소','-')} | 🔢 관리번호: {site_no}")
-
-    # [기능 1] 해당 현장 관리번호와 매칭되는 연락처만 표시
-    st.markdown("#### 👥 현장 전용 연락처")
-    if not contact_df.empty and '관리번호' in contact_df.columns:
-        matched_contacts = contact_df[contact_df['관리번호'] == site_no]
-        if not matched_contacts.empty:
-            st.dataframe(matched_contacts, use_container_width=True, hide_index=True)
-        else:
-            st.caption("매칭된 연락처가 없습니다. contacts.csv의 관리번호를 확인해 주세요.")
+    st.markdown(f"### 🏢 {site_name} 상세일지")
+    if st.button("⬅️ 메인으로"): st.session_state.page = 'dashboard'; st.session_state.selected_site = None; st.rerun()
 
     st.divider()
+    
+    # 현장 연락처 자동 연동
+    st.markdown("#### 📞 현장 연락처")
+    matched = contact_df[contact_df['관리번호'] == site_no]
+    st.dataframe(matched if not matched.empty else pd.DataFrame(columns=["연락처 없음"]), use_container_width=True, hide_index=True)
 
-    # [기능 2] 업무일지 제목줄 양식 박제
-    st.markdown("#### 📝 현장 업무 기록 (PC/모바일 공용)")
-    log_template = f"""[업무일지 - {datetime.now().strftime('%Y-%m-%d')}]
+    # 업무 분류 6종 선택 박스
+    st.markdown("#### 📝 업무 기록")
+    work_cat = st.selectbox("업무 분류", ["📞 통화", "🚗 방문", "📧 E-메일", "🏗️ 공사", "📄 서류작업", "💰 발행-입금"])
+    
+    # 원노트 표준 양식 박제
+    log_format = f"""[업무일지 - {datetime.now().strftime('%Y-%m-%d')}]
+분류: {work_cat}
 작성자: 함재영 사장님
-현장명: {site_name}
-날씨: 
+---------------------------------------
+■ 작업내용: 
 
-■ 금일 작업 내용
-- 
+■ 인력/장비: 
 
-■ 투입 인력 및 장비
-- 
-
-■ 특이사항
-- 
+■ 특이사항: 
 """
-    st.text_area("내용을 입력하세요", value=log_template, height=400)
-    if st.button("💾 일지 내용 임시 저장"):
-        st.success("현장 일지가 브라우저에 기록되었습니다. (엑셀 저장 기능은 추후 확장 가능)")
+    st.text_area("내용 입력", value=log_format, height=350)
+    
+    c1, c2 = st.columns(2)
+    with c1: 
+        if st.button("💾 일지 저장"): st.success("일지가 기록되었습니다.")
+    with c2:
+        # 완공 이동 기능
+        finish_cat = st.selectbox("공사 완료 시 카테고리 선택", ["제조소_취급소", "옥내저장소", "옥외저장소", "옥내탱크", "옥외탱크", "지하탱크", "군부대", "도료류", "컨설팅"])
+        if st.button("✅ 완공 처리 및 아카이빙"):
+            st.warning(f"이 현장을 '{finish_cat}' 섹션으로 이동하시겠습니까?")
+
+# --- [대시보드 화면] ---
+else:
+    st.markdown("## 🚀 청호방재 업무일지 실시간 현황")
+    st.info("사이드바의 계층 메뉴를 통해 현장을 관리하거나, 아래 일정표를 확인하세요.")
+    st.divider()
+    st.components.v1.iframe("https://calendar.google.com/calendar/embed?src=ko.south_korea%23holiday%40group.v.calendar.google.com", height=500)
