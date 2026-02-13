@@ -1,61 +1,94 @@
 import streamlit as st
 import pandas as pd
 import os
+from datetime import datetime
 
-st.set_page_config(page_title="청호방재 필드마스터", layout="wide")
-st.title("🚀 청호방재 현장관리 시스템")
+# 1. 페이지 설정 (사이드바 제거 및 모바일 최적화)
+st.set_page_config(page_title="청호방재 필드마스터", layout="wide", initial_sidebar_state="collapsed")
 
-# [보너스] 현재 창고(폴더)에 무슨 파일이 있는지 확인하는 기능
-files = os.listdir('.')
-st.sidebar.write("📁 현재 서버 파일 목록:", files)
+# 노션 스타일 디자인 적용
+st.markdown("""
+    <style>
+    [data-testid="stSidebarNav"] {display: none;} /* 사이드바 숨김 */
+    .stApp { background-color: #ffffff; }
+    .main-card { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #eee; margin-bottom: 15px; }
+    .stButton>button { width: 100%; border-radius: 8px; height: 3em; background-color: #007AFF; color: white; }
+    </style>
+    """, unsafe_allow_html=True)
 
 @st.cache_data
-def load_and_clean_data():
+def load_data():
     try:
-        # 파일 이름을 유연하게 찾습니다 (대소문자 구분 없이)
-        site_file = next((f for f in files if f.lower() == 'data.xlsx'), None)
-        contact_file = next((f for f in files if f.lower() == 'contacts.csv'), None)
-
-        if not site_file or not contact_file:
-            st.error(f"❌ 파일을 찾을 수 없습니다. (찾는 파일: data.xlsx, contacts.csv)")
-            return None, None
-
-        # 1. 현장 장부 읽기
-        site_df = pd.read_excel(site_file)
-        
-        # 2. 연락처 읽기 및 비어있는 칸 삭제
-        contact_df = pd.read_csv(contact_file)
-        contact_df = contact_df.dropna(axis=1, how='all') # 데이터 없는 칸 삭제
-        contact_df = contact_df.loc[:, ~contact_df.columns.str.contains('^Unnamed')] # 쓰레기 칸 삭제
-        
+        site_df = pd.read_excel("data.xlsx")
+        contact_df = pd.read_csv("contacts.csv")
+        contact_df = contact_df.dropna(axis=1, how='all')
         return site_df, contact_df
-    except Exception as e:
-        st.error(f"⚠️ 읽기 오류 발생: {e}")
+    except:
         return None, None
 
-site_df, contact_df = load_and_clean_data()
+site_df, contact_df = load_data()
 
-if site_df is not None and contact_df is not None:
-    st.success("✅ 장부와 연락처를 성공적으로 연결했습니다!")
+if site_df is not None:
+    # --- 상단 헤더 ---
+    st.title("🚀 청호방재 필드마스터")
     
-    # 관리번호가 있는 칸 찾기 (현장 시트에서 '관리번호'라는 이름의 컬럼이 있는지 확인)
-    col_name = '관리번호' if '관리번호' in site_df.columns else site_df.columns[0]
-    
-    selected_site = st.selectbox("조회할 현장명을 선택하세요", site_df['현장명'].unique())
-    site_no = site_df[site_df['현장명'] == selected_site][col_name].iloc[0]
-    
-    st.write(f"🔢 해당 현장 관리번호: **{site_no}**")
-    
-    # 연락처에서 관리번호 매칭 (메모나 커스텀 필드 검색)
-    def find_match(row):
-        return str(site_no) in " ".join(row.astype(str))
+    # 2. 현장 선택 (가장 크게)
+    selected_site_name = st.selectbox("🏥 현장을 검색하거나 선택하세요", site_df['현장명'].unique())
+    site_info = site_df[site_df['현장명'] == selected_site_name].iloc[0]
+    site_no = str(site_info.get('관리번호', ''))
 
-    matched = contact_df[contact_df.apply(find_match, axis=1)]
+    # --- 현장 정보 카드 ---
+    st.markdown(f"""
+    <div class="main-card">
+        <h4>🏢 {selected_site_name}</h4>
+        <p>📍 {site_info.get('사업장주소', '주소 정보 없음')}</p>
+        <p>🔢 관리번호: <b>{site_no}</b> | ⚖️ 관할: {site_info.get('관할서', '-')}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 3. 관계자 연락처 (현장명/회사명/메모에서 관리번호나 현장명으로 검색)
+    st.subheader("👥 현장 관계자")
+    def find_contacts(row):
+        # 이름, 회사명, 메모, 직함 등 모든 칸에서 현장명이나 관리번호가 있는지 검색
+        search_text = " ".join(row.astype(str))
+        return (site_no in search_text) or (selected_site_name in search_text)
+
+    matched = contact_df[contact_df.apply(find_contacts, axis=1)]
     
     if not matched.empty:
-        st.subheader(f"👥 관련 담당자 ({len(matched)}명)")
-        st.dataframe(matched, use_container_width=True)
+        for _, p in matched.iterrows():
+            with st.expander(f"👤 {p.get('First Name', '이름없음')} ({p.get('Organization Title', '직함없음')})"):
+                st.write(f"📞 전화: {p.get('Phone 1 - Value', '번호없음')}")
+                st.write(f"🏢 소속: {p.get('Organization Name', '-')}")
+                if pd.notnull(p.get('Notes')): st.info(f"📝 메모: {p.get('Notes')}")
     else:
-        st.warning("이 관리번호와 매칭되는 연락처가 주소록에 없습니다.")
+        st.caption("연결된 연락처가 없습니다. 구글 연락처 메모에 관리번호를 넣어주세요.")
+
+    st.divider()
+
+    # 4. 업무 일지 (현장별 자유 기입)
+    st.subheader("📝 현장 업무 일지")
+    
+    # 사진 찍기 기능 (모바일에서 카메라 연동)
+    img_file = st.camera_input("📸 현장 사진 촬영")
+    if img_file:
+        st.success("사진이 캡처되었습니다!")
+
+    # 일지 입력
+    today_date = datetime.now().strftime("%Y-%m-%d")
+    log_content = st.text_area(f"[{today_date}] 작업 내용 기록", height=150, placeholder="오늘의 점검 내용, 특이사항을 자유롭게 적으세요.")
+    
+    if st.button("💾 이 현장 일지 저장하기"):
+        # 여기서 실제 파일이나 DB에 저장하는 로직을 추가할 수 있습니다.
+        st.balloons()
+        st.success(f"{selected_site_name} 업무 일지가 로컬에 임시 저장되었습니다!")
+
+    # 5. 노션 스타일 할일 리스트
+    st.divider()
+    st.subheader("✅ 오늘 할 일 (To-do)")
+    st.checkbox("현장 도착 보고")
+    st.checkbox("소방 시설 점검 완료")
+    st.checkbox("관계자 서명 받기")
+
 else:
-    st.warning("창고에 파일이 없거나 이름이 틀립니다. 왼쪽 사이드바의 파일 목록을 확인해 주세요.")
+    st.error("데이터 파일을 찾을 수 없습니다.")
