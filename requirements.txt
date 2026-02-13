@@ -4,4 +4,3 @@ plotly
 gspread
 google-auth
 google-api-python-client
-
