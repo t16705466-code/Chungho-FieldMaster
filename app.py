@@ -1,37 +1,36 @@
-// 기존 코드에서 모바일 터치 및 하단 여백 최적화 로직 추가 반영됨
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ChevronLeft, Save, Plus, Trash2, FileText, Camera, 
   Calculator, StickyNote, Users, Search, Filter, ArrowRight,
   ExternalLink, Calendar, LayoutDashboard, Settings, PlusCircle, Link2, X, Edit2, List, ClipboardList, Loader2,
-  CheckCircle2, AlertCircle, Phone, Mail, Building2, Menu
+  Menu, Building2
 } from 'lucide-react';
 
-// Firebase 임포트 및 초기화 로직
+// Firebase 임포트
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, onSnapshot, query, addDoc, updateDoc, deleteDoc, orderBy, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, collection, doc, setDoc, onSnapshot, query, addDoc, updateDoc, deleteDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 
+// Firebase 설정 (환경 변수 자동 연결)
 const firebaseConfig = JSON.parse(__firebase_config);
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'chungho-work-log-system';
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'work-log-pro-system';
 
 const App = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('dashboard');
-  const [activeTab, setActiveTab] = useState('home'); 
+  const [view, setView] = useState('dashboard'); // 'dashboard' or 'detail'
+  const [activeTab, setActiveTab] = useState('home'); // 'home', 'progress', 'quote', 'all'
   const [masterData, setMasterData] = useState([]);
   const [quickLinks, setQuickLinks] = useState([]);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [editingLink, setEditingLink] = useState(null);
   const [currentDetail, setCurrentDetail] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // 인증 및 리스너 로직
+  // 1. 구글 클라우드(Firebase) 인증
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -40,76 +39,151 @@ const App = () => {
         } else {
           await signInAnonymously(auth);
         }
-      } catch (error) { console.error("Auth Error:", error); }
+      } catch (error) {
+        console.error("인증 오류:", error);
+      }
     };
     initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false); });
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      setLoading(false);
+    });
     return () => unsubscribe();
   }, []);
 
+  // 2. 실시간 데이터 동기화 리스너
   useEffect(() => {
     if (!user) return;
-    const unsubMaster = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'masterData'), (s) => {
-      setMasterData(s.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-    const unsubLinks = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'quickLinks'), (s) => {
-      setQuickLinks(s.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+
+    // 현장 마스터 DB 리스너
+    const masterRef = collection(db, 'artifacts', appId, 'public', 'data', 'masterData');
+    const unsubMaster = onSnapshot(masterRef, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setMasterData(data);
+    }, (error) => console.error("데이터 수신 오류:", error));
+
+    // 바로가기 리스너
+    const linksRef = collection(db, 'artifacts', appId, 'public', 'data', 'quickLinks');
+    const unsubLinks = onSnapshot(linksRef, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setQuickLinks(data);
+    }, (error) => console.error("링크 수신 오류:", error));
+
     return () => { unsubMaster(); unsubLinks(); };
   }, [user]);
+
+  // --- 핸들러 ---
+  const handleRowClick = (item) => {
+    setCurrentDetail(item);
+    setView('detail');
+  };
+
+  const handleCreateNew = () => {
+    setCurrentDetail({
+      manageNo: '',
+      jurisdiction: '',
+      siteName: '',
+      bizAddress: '',
+      siteAddress: '',
+      memo: '',
+      contractAmount: '',
+      advancePayment: '',
+      intermediatePayment: '',
+    });
+    setView('detail');
+    setIsMobileMenuOpen(false);
+  };
+
+  const handleSaveMaster = async (updatedData) => {
+    if (!user) return;
+    try {
+      const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'masterData');
+      
+      // 중복 체크 (신규 생성 시)
+      if (!updatedData.id) {
+        const isDuplicate = masterData.some(d => d.manageNo === updatedData.manageNo && d.manageNo !== '');
+        if (isDuplicate) {
+          alert(`오류: 관리번호 [${updatedData.manageNo}]는 이미 등록되어 있습니다.`);
+          return;
+        }
+      }
+
+      if (updatedData.id) {
+        await setDoc(doc(collectionRef, updatedData.id), { ...updatedData, updatedAt: serverTimestamp() }, { merge: true });
+      } else {
+        await addDoc(collectionRef, { ...updatedData, createdAt: serverTimestamp() });
+      }
+      setView('dashboard');
+    } catch (err) {
+      console.error("저장 오류:", err);
+    }
+  };
+
+  const navigateToTab = (tab) => {
+    setActiveTab(tab);
+    setView('dashboard');
+    setIsMobileMenuOpen(false);
+  };
 
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white">
-        <Loader2 className="animate-spin mb-6 text-blue-500" size={64} />
-        <p className="text-2xl font-black tracking-tight text-center px-6">데이터 클라우드 시스템 연결 중...</p>
+        <Loader2 className="animate-spin mb-4 text-blue-500" size={64} />
+        <p className="font-black text-2xl tracking-tighter">청호방재 클라우드 연결 중...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] font-sans text-slate-900 flex flex-col overflow-x-hidden">
+    <div className="min-h-screen bg-[#f1f5f9] font-sans text-slate-900 flex flex-col relative selection:bg-blue-100">
       
-      {/* 상단 헤더 */}
-      <header className="bg-slate-950 border-b border-slate-800 sticky top-0 z-[100] shadow-xl h-16 sm:h-20">
-        <div className="max-w-[1920px] mx-auto px-4 sm:px-8 h-full flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button className="xl:hidden text-white p-2" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+      {/* 상단 헤더 (로고 및 네비게이션) */}
+      <header className="bg-slate-950 border-b border-slate-800 sticky top-0 z-[100] shadow-2xl h-20">
+        <div className="max-w-[1920px] mx-auto px-6 h-full flex items-center justify-between">
+          <div className="flex items-center gap-6 sm:gap-10">
+            <button className="lg:hidden text-white p-2" onClick={() => setIsMobileMenuOpen(true)}>
               <Menu size={28} />
             </button>
-            <div className="flex items-center gap-3 cursor-pointer group" onClick={() => {setView('dashboard'); setActiveTab('home');}}>
-              <div className="bg-blue-600 p-2 rounded-xl text-white shadow-lg">
-                <Building2 size={24} />
+            <div className="flex items-center gap-3 cursor-pointer group" onClick={() => navigateToTab('home')}>
+              <div className="bg-blue-600 p-2 rounded-xl text-white shadow-[0_0_20px_rgba(37,99,235,0.4)] group-hover:scale-110 transition-transform">
+                <Building2 size={26} />
               </div>
-              <span className="text-xl sm:text-2xl font-black tracking-tighter text-white leading-none">청호방재</span>
+              <span className="text-xl sm:text-2xl font-black tracking-tighter text-white">청호방재</span>
             </div>
+            
+            {/* 메인 메뉴 */}
+            <nav className="hidden lg:flex items-center gap-2">
+              <NavButton active={view === 'dashboard' && activeTab === 'home'} onClick={() => navigateToTab('home')} icon={<LayoutDashboard size={18}/>} label="대시보드" />
+              <NavButton active={view === 'dashboard' && activeTab === 'progress'} onClick={() => navigateToTab('progress')} icon={<ArrowRight size={18} className="text-blue-400"/>} label="진행중 리스트" />
+              <NavButton active={view === 'dashboard' && activeTab === 'quote'} onClick={() => navigateToTab('quote')} icon={<ArrowRight size={18} className="text-orange-400"/>} label="견적중 리스트" />
+              <div className="w-px h-8 bg-slate-800 mx-3" />
+              <NavButton active={view === 'dashboard' && activeTab === 'all'} onClick={() => navigateToTab('all')} icon={<List size={18}/>} label="데이터베이스" />
+              <NavButton active={view === 'detail' && !currentDetail?.id} onClick={handleCreateNew} icon={<PlusCircle size={18} className="text-emerald-400"/>} label="신규 현장 등록" />
+            </nav>
           </div>
 
-          <nav className="hidden xl:flex items-center gap-3">
-             <HeaderTab active={view === 'dashboard' && activeTab === 'home'} onClick={() => {setActiveTab('home'); setView('dashboard');}} icon={<LayoutDashboard size={18}/>} label="대시보드" />
-             <HeaderTab active={activeTab === 'progress'} onClick={() => {setActiveTab('progress'); setView('dashboard');}} icon={<ArrowRight size={18} className="text-blue-400"/>} label="진행중" />
-             <HeaderTab active={activeTab === 'quote'} onClick={() => {setActiveTab('quote'); setView('dashboard');}} icon={<ArrowRight size={18} className="text-orange-400"/>} label="견적중" />
-             <button onClick={() => { setCurrentDetail(null); setView('detail'); }} className="ml-4 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black text-sm shadow-lg flex items-center gap-2">
-               <Plus size={18} /> 신규 등록
-             </button>
-          </nav>
-
-          <div className="p-2 rounded-full bg-slate-900 text-slate-400"><Settings size={20}/></div>
+          <div className="flex items-center gap-3">
+             <Settings size={22} className="text-slate-500 hover:text-white cursor-pointer transition-colors" />
+          </div>
         </div>
       </header>
 
       {/* 모바일 사이드바 메뉴 */}
       {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-[200] xl:hidden">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
+        <div className="fixed inset-0 z-[200] lg:hidden">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
           <div className="absolute left-0 top-0 bottom-0 w-72 bg-slate-950 p-6 space-y-8 animate-in slide-in-from-left duration-300">
-             <h3 className="text-white font-black text-2xl border-b border-slate-800 pb-4">메뉴</h3>
+             <div className="flex justify-between items-center border-b border-slate-800 pb-4 text-white">
+                <h3 className="font-black text-xl">메뉴 바로가기</h3>
+                <button onClick={() => setIsMobileMenuOpen(false)}><X size={24}/></button>
+             </div>
              <div className="flex flex-col gap-4">
-                <MobileMenuBtn onClick={() => {setActiveTab('home'); setView('dashboard'); setIsMobileMenuOpen(false);}} label="대시보드 홈" active={activeTab === 'home'} />
-                <MobileMenuBtn onClick={() => {setActiveTab('progress'); setView('dashboard'); setIsMobileMenuOpen(false);}} label="진행중 현장" active={activeTab === 'progress'} />
-                <MobileMenuBtn onClick={() => {setActiveTab('quote'); setView('dashboard'); setIsMobileMenuOpen(false);}} label="견적중 현장" active={activeTab === 'quote'} />
-                <button onClick={() => {setCurrentDetail(null); setView('detail'); setIsMobileMenuOpen(false);}} className="w-full p-4 bg-emerald-600 text-white rounded-2xl font-black text-left mt-4 shadow-lg flex items-center gap-2">
-                  <Plus size={20} /> 신규 등록
+                <MobileMenuBtn onClick={() => navigateToTab('home')} label="대시보드 홈" active={activeTab === 'home'} />
+                <MobileMenuBtn onClick={() => navigateToTab('progress')} label="진행중인 현장" active={activeTab === 'progress'} />
+                <MobileMenuBtn onClick={() => navigateToTab('quote')} label="견적 대기 현장" active={activeTab === 'quote'} />
+                <MobileMenuBtn onClick={() => navigateToTab('all')} label="마스터 DB" active={activeTab === 'all'} />
+                <button onClick={handleCreateNew} className="w-full p-4 bg-emerald-600 text-white rounded-2xl font-black text-left mt-4 shadow-lg flex items-center justify-between group">
+                  신규 현장 등록 <Plus size={20} />
                 </button>
              </div>
           </div>
@@ -117,267 +191,456 @@ const App = () => {
       )}
 
       {/* 메인 화면 */}
-      <main className="flex-1">
+      <div className="flex-1 overflow-y-auto">
         {view === 'dashboard' ? (
-          <DashboardContent 
-            data={masterData}
+          <DashboardView 
+            data={masterData} 
             activeTab={activeTab}
-            setActiveTab={setActiveTab}
+            setActiveTab={navigateToTab}
             quickLinks={quickLinks}
-            onProjectClick={(p) => {setCurrentDetail(p); setView('detail');}}
-            onAddLink={() => {setEditingLink(null); setIsLinkModalOpen(true);}}
-            onEditLink={(l) => {setEditingLink(l); setIsLinkModalOpen(true);}}
-            searchTerm={searchTerm}
-            setSearchTerm={setSearchTerm}
+            onRowClick={handleRowClick} 
+            onAddLink={() => { setEditingLink(null); setIsLinkModalOpen(true); }}
+            onEditLink={(link) => { setEditingLink(link); setIsLinkModalOpen(true); }}
           />
         ) : (
-          <ProjectDetailView 
-            data={currentDetail || { manageNo: '', siteName: '', contractAmount: 0, advancePayment: 0, intermediatePayment: 0 }}
-            onBack={() => setView('dashboard')}
-            onSave={async (formData) => {
-              const ref = collection(db, 'artifacts', appId, 'public', 'data', 'masterData');
-              if (formData.id) await updateDoc(doc(ref, formData.id), formData);
-              else await addDoc(ref, { ...formData, createdAt: serverTimestamp() });
-              setView('dashboard');
-            }}
+          <DetailView 
+            data={currentDetail} 
+            onBack={() => setView('dashboard')} 
+            onSave={handleSaveMaster}
           />
         )}
-      </main>
+      </div>
 
-      {/* 링크 모달 */}
+      {/* 링크 관리 모달 */}
       {isLinkModalOpen && (
-        <LinkModal 
+        <LinkEditModal 
           link={editingLink} 
-          onClose={() => setIsLinkModalOpen(false)} 
-          onSave={async (t, u) => {
+          onSave={async (title, url) => {
             const ref = collection(db, 'artifacts', appId, 'public', 'data', 'quickLinks');
-            if (editingLink) await updateDoc(doc(ref, editingLink.id), { title: t, url: u });
-            else await addDoc(ref, { title: t, url: u, createdAt: serverTimestamp() });
+            if (editingLink) {
+              await updateDoc(doc(ref, editingLink.id), { title, url });
+            } else {
+              await addDoc(ref, { title, url, createdAt: serverTimestamp() });
+            }
             setIsLinkModalOpen(false);
-          }} 
+          }}
           onDelete={async (id) => { 
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'quickLinks', id)); 
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'quickLinks', id));
             setIsLinkModalOpen(false); 
-          }} 
+          }}
+          onClose={() => { setIsLinkModalOpen(false); setEditingLink(null); }} 
         />
       )}
     </div>
   );
 };
 
-// --- [컴포넌트: 네비게이션/공통] ---
-const MobileMenuBtn = ({ label, onClick, active }) => (
-  <button onClick={onClick} className={`w-full p-4 rounded-2xl font-black text-left transition-all ${active ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-900'}`}>
-    {label}
-  </button>
-);
-
-const HeaderTab = ({ active, onClick, icon, label }) => (
-  <button onClick={onClick} className={`flex items-center gap-2.5 px-6 py-2.5 rounded-2xl text-sm font-black transition-all ${active ? 'bg-slate-800 text-white shadow-lg border border-slate-700' : 'text-slate-500 hover:text-white'}`}>
+// --- [보조 컴포넌트: 네비게이션] ---
+const NavButton = ({ active, onClick, icon, label }) => (
+  <button 
+    onClick={onClick}
+    className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-black transition-all ${
+      active 
+        ? 'bg-slate-800 text-white border border-slate-700 shadow-lg' 
+        : 'text-slate-400 hover:bg-slate-900 hover:text-white'
+    }`}
+  >
     {icon} {label}
   </button>
 );
 
-// --- [컴포넌트: 대시보드 메인] ---
-const DashboardContent = ({ data, activeTab, setActiveTab, quickLinks, onProjectClick, onAddLink, onEditLink, searchTerm, setSearchTerm }) => {
-    const getStatus = (no) => {
-      if(!no) return '-';
-      return String(no).replace(/-/g, '').length >= 6 ? '견적중' : '진행중';
-    };
-    const progressCount = data.filter(d => getStatus(d.manageNo) === '진행중').length;
-    const quoteCount = data.filter(d => getStatus(d.manageNo) === '견적중').length;
-
-    if (activeTab === 'home') {
-        return (
-            <div className="p-4 sm:p-12 space-y-8 animate-in fade-in duration-500 max-w-[1600px] mx-auto">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
-                    <MetricCard title="진행중인 공사" count={progressCount} color="blue" onClick={() => setActiveTab('progress')} />
-                    <MetricCard title="견적 및 대기" count={quoteCount} color="orange" onClick={() => setActiveTab('quote')} />
-                </div>
-
-                <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-xl relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-2 h-full bg-blue-600" />
-                    <h3 className="text-2xl font-black mb-8 flex items-center gap-3"><Link2 className="text-blue-600"/> 빠른 바로가기</h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
-                        {quickLinks.map(link => (
-                            <div key={link.id} className="relative group">
-                              <a href={link.url} target="_blank" rel="noreferrer" className="flex flex-col items-center p-6 bg-slate-50 rounded-[30px] border border-slate-100 hover:bg-white hover:border-blue-500 hover:shadow-lg transition-all h-full">
-                                  <div className="w-12 h-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-xl mb-3">🌐</div>
-                                  <span className="text-xs font-black text-slate-700 truncate w-full text-center">{link.title}</span>
-                              </a>
-                              <button onClick={() => onEditLink(link)} className="absolute top-2 right-2 p-1.5 bg-white rounded-full text-slate-300 hover:text-blue-500 opacity-0 group-hover:opacity-100 shadow-sm transition-opacity"><Edit2 size={12}/></button>
-                            </div>
-                        ))}
-                        <button onClick={onAddLink} className="p-6 border-2 border-dashed border-slate-200 rounded-[30px] text-slate-300 hover:text-blue-500 hover:border-blue-200 transition-all font-black flex items-center justify-center">
-                          <Plus size={32} />
-                        </button>
-                    </div>
-                </div>
-
-                <div className="h-[700px] bg-white rounded-[40px] border border-slate-200 shadow-xl overflow-hidden relative">
-                    <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-                      <Calendar className="text-red-500" />
-                      <span className="font-black text-slate-800">청호방재 일정표</span>
-                    </div>
-                    <iframe src="https://calendar.google.com/calendar/embed?src=t16705466@gmail.com&ctz=Asia/Seoul" width="100%" height="100%" frameBorder="0" scrolling="no" className="p-4" />
-                </div>
-            </div>
-        );
-    }
-    
-    const filtered = data.filter(item => {
-        const s = (item.siteName + (item.manageNo || '')).toLowerCase();
-        const matches = s.includes(searchTerm.toLowerCase());
-        if (activeTab === 'progress') return matches && getStatus(item.manageNo) === '진행중';
-        if (activeTab === 'quote') return matches && getStatus(item.manageNo) === '견적중';
-        return matches;
-    });
-
-    return (
-        <div className="p-4 sm:p-12 max-w-[1920px] mx-auto animate-in fade-in">
-            <div className="bg-white rounded-[40px] border border-slate-200 shadow-2xl overflow-hidden min-h-[800px] flex flex-col">
-                <div className="p-6 sm:p-12 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-6 bg-slate-50/50">
-                    <div className="flex items-center gap-4">
-                      <div className={`p-4 rounded-2xl text-white ${activeTab === 'progress' ? 'bg-blue-600' : 'bg-orange-500'}`}><List size={28}/></div>
-                      <h2 className="text-3xl font-black">{activeTab === 'progress' ? '진행 리스트' : '견적 리스트'}</h2>
-                    </div>
-                    <div className="relative w-full sm:w-96">
-                      <Search className="absolute left-5 top-4 text-slate-400" size={20} />
-                      <input className="w-full pl-14 pr-6 py-4 bg-white rounded-2xl border border-slate-200 outline-none focus:ring-2 ring-blue-500 font-bold" placeholder="현장명 검색..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                    </div>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left min-w-[1000px]">
-                        <thead className="bg-slate-950 text-white uppercase text-xs tracking-widest font-black">
-                            <tr><th className="p-6">관리번호</th><th className="p-6">현장명</th><th className="p-6 text-right">잔금</th></tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {filtered.map(p => (
-                                <tr key={p.id} onClick={() => onProjectClick(p)} className="hover:bg-slate-50 cursor-pointer transition-colors group">
-                                    <td className="p-6 font-mono font-bold text-slate-500">{p.manageNo}</td>
-                                    <td className="p-6 font-black text-xl group-hover:text-blue-600">{p.siteName}</td>
-                                    <td className="p-6 text-right font-black text-red-600">
-                                      {(parseInt(p.contractAmount * 1.1 || 0) - (parseInt(p.advancePayment || 0) + parseInt(p.intermediatePayment || 0))).toLocaleString()}원
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- [컴포넌트: 프로젝트 상세] ---
-const ProjectDetailView = ({ data, onBack, onSave }) => {
-    const [formData, setFormData] = useState(data);
-    const [logs, setLogs] = useState([]);
-    const siteId = data.id;
-
-    useEffect(() => {
-        if(!siteId) return;
-        return onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', `logs_${siteId}`), orderBy('createdAt', 'desc')), s => setLogs(s.docs.map(d => ({id: d.id, ...d.data()}))));
-    }, [siteId]);
-
-    const handleSave = () => {
-        if(!formData.manageNo || !formData.siteName) return alert("관리번호와 현장명은 필수 항목입니다.");
-        onSave(formData);
-    };
-
-    return (
-        <div className="p-4 sm:p-12 max-w-[1400px] mx-auto animate-in slide-in-from-bottom-10 pb-40">
-            <div className="bg-white rounded-[50px] border border-slate-200 shadow-2xl overflow-hidden">
-                <div className="p-10 sm:p-20 bg-slate-950 text-white flex flex-col gap-6 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 blur-[80px]" />
-                    <button onClick={onBack} className="text-slate-500 font-black text-sm uppercase hover:text-white transition-colors flex items-center gap-2"><ChevronLeft size={20}/> Back to List</button>
-                    <h2 className="text-4xl sm:text-6xl font-black tracking-tighter">{formData.siteName || '새 현장 등록'}</h2>
-                </div>
-                <div className="p-6 sm:p-16 space-y-12">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        <MobileInput label="관리번호" value={formData.manageNo} onChange={v => setFormData({...formData, manageNo: v})} placeholder="예: 25-01" />
-                        <MobileInput label="현장명" value={formData.siteName} onChange={v => setFormData({...formData, siteName: v})} placeholder="상호명 입력" />
-                        <MobileInput label="계약금액(공급가)" value={formData.contractAmount} onChange={v => setFormData({...formData, contractAmount: v.replace(/[^0-9]/g, '')})} placeholder="숫자만 입력" />
-                        <MobileInput label="선수금" value={formData.advancePayment} onChange={v => setFormData({...formData, advancePayment: v.replace(/[^0-9]/g, '')})} placeholder="숫자만 입력" />
-                    </div>
-                    
-                    {siteId && (
-                        <div className="space-y-6 pt-12 border-t border-slate-100">
-                            <h3 className="text-2xl font-black flex items-center gap-3"><StickyNote className="text-blue-600"/> 상담 및 현장 일지</h3>
-                            <button onClick={async () => {
-                                const content = prompt("상담 내용을 입력하세요:");
-                                if(content) await addDoc(collection(db, 'artifacts', appId, 'public', 'data', `logs_${siteId}`), { content, date: new Date().toISOString().split('T')[0], createdAt: serverTimestamp() });
-                            }} className="w-full p-6 bg-blue-50 border border-blue-100 rounded-2xl font-black text-blue-600 hover:bg-blue-100 transition-all flex items-center justify-center gap-2">
-                              <Plus size={24} /> 일지 내용 추가
-                            </button>
-                            <div className="space-y-4">
-                                {logs.map(l => (
-                                    <div key={l.id} className="p-8 bg-slate-50 rounded-3xl border border-slate-100 shadow-sm relative group">
-                                        <div className="flex justify-between items-center mb-4">
-                                          <div className="px-4 py-1.5 bg-white rounded-xl text-xs font-black text-blue-500 shadow-sm">{l.date}</div>
-                                          <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', `logs_${siteId}`, l.id))} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={18}/></button>
-                                        </div>
-                                        <div className="font-bold text-xl text-slate-800 leading-relaxed whitespace-pre-wrap">{l.content}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                    
-                    <button onClick={handleSave} className="w-full py-8 bg-slate-950 text-white rounded-[32px] font-black text-3xl shadow-2xl active:scale-95 hover:bg-black transition-all mt-12 flex items-center justify-center gap-3">
-                      <Save size={32} /> 최종 데이터 저장
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- [보조 UI 유틸리티] ---
-const MobileInput = ({ label, value, onChange, placeholder }) => (
-    <div className="space-y-3">
-        <label className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] ml-2">{label}</label>
-        <input className="w-full p-6 bg-slate-50 rounded-[24px] border border-slate-100 outline-none focus:ring-4 ring-blue-100 focus:bg-white transition-all font-bold text-2xl" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} />
-    </div>
-);
-
-const MetricCard = ({ title, count, color, onClick }) => (
-    <button onClick={onClick} className="bg-white p-10 rounded-[45px] border border-slate-200 shadow-xl flex items-center justify-between group active:scale-95 transition-all w-full relative overflow-hidden">
-        <div className={`absolute top-0 right-0 w-32 h-32 ${color === 'blue' ? 'bg-blue-500/5' : 'bg-orange-500/5'} rounded-full -mr-16 -mt-16`} />
-        <div className="text-left z-10">
-            <p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-3">{title}</p>
-            <p className={`text-7xl font-black ${color === 'blue' ? 'text-blue-600' : 'text-orange-500'} tracking-tighter`}>{count}<span className="text-2xl ml-2 text-slate-300 font-bold">건</span></p>
-        </div>
-        <div className={`p-8 rounded-[35px] z-10 ${color === 'blue' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'} group-hover:rotate-12 transition-transform shadow-sm`}><ArrowRight size={48}/></div>
+const MobileMenuBtn = ({ label, onClick, active }) => (
+  <button onClick={onClick} className={`w-full p-4 rounded-2xl font-black text-left transition-all ${active ? 'bg-blue-600 text-white shadow-xl' : 'text-slate-500 hover:bg-slate-900'}`}>
+    {label}
   </button>
 );
 
-const LinkModal = ({ link, onClose, onSave, onDelete }) => {
+// --- [대시보드 뷰 컴포넌트] ---
+const DashboardView = ({ data, activeTab, setActiveTab, quickLinks, onRowClick, onAddLink, onEditLink }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const getStatus = (no) => {
+    if (!no) return '-';
+    const cleanNo = String(no).replace(/-/g, '');
+    return cleanNo.length >= 6 ? '견적중' : '진행중';
+  };
+
+  const inProgressList = data.filter(item => getStatus(item.manageNo) === '진행중');
+  const quotationList = data.filter(item => getStatus(item.manageNo) === '견적중');
+  const calendarEmbedUrl = "https://calendar.google.com/calendar/embed?src=t16705466%40gmail.com&ctz=Asia%2FSeoul";
+
+  // CASE 1: 대시보드 홈 (리스트 없음)
+  if (activeTab === 'home') {
+    return (
+      <div className="max-w-[1800px] mx-auto p-4 sm:p-8 space-y-8 animate-in fade-in duration-500">
+        {/* 요약 카드 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <SummaryCard title="진행중인 현장" count={inProgressList.length} color="blue" onClick={() => setActiveTab('progress')} />
+          <SummaryCard title="견적중인 현장" count={quotationList.length} color="orange" onClick={() => setActiveTab('quote')} />
+        </div>
+
+        {/* 구글 검색창 */}
+        <div className="max-w-4xl mx-auto w-full px-2">
+          <div className="relative group">
+            <Search className="absolute left-8 top-7 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={32} />
+            <input 
+              type="text" 
+              placeholder="구글 검색어를 입력하고 엔터를 누르세요..." 
+              className="w-full pl-24 pr-10 py-8 bg-white border-2 border-slate-100 rounded-[40px] text-2xl font-black shadow-2xl focus:outline-none focus:border-blue-500 transition-all placeholder:text-slate-300"
+              onKeyDown={(e) => { if(e.key === 'Enter') window.open(`https://www.google.com/search?q=${e.target.value}`, '_blank'); }}
+            />
+          </div>
+        </div>
+
+        {/* 바로가기 */}
+        <div className="bg-white rounded-[50px] p-8 sm:p-16 border border-slate-200 shadow-xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-2 h-full bg-blue-600" />
+          <div className="flex justify-between items-center mb-10">
+            <h3 className="font-black text-slate-800 text-2xl flex items-center gap-4"><Link2 size={28} className="text-blue-600" /> 빠른 바로가기</h3>
+            <button onClick={onAddLink} className="bg-slate-100 p-3 rounded-full text-slate-400 hover:text-blue-600 transition-all shadow-sm"><PlusCircle size={28} /></button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-6">
+            {quickLinks.slice(0, 10).map(link => (
+              <div key={link.id} className="relative group">
+                <a href={link.url} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center justify-center p-8 bg-slate-50 border border-slate-200 rounded-[40px] text-sm font-black text-slate-700 hover:bg-white hover:border-blue-500 hover:text-blue-600 hover:shadow-2xl transition-all h-full">
+                  <div className="w-14 h-14 rounded-2xl bg-white flex items-center justify-center text-2xl shadow-sm mb-3 border border-slate-100 group-hover:scale-110 transition-transform">🌐</div>
+                  <span className="truncate w-full text-center">{link.title}</span>
+                </a>
+                <button onClick={(e) => { e.preventDefault(); onEditLink(link); }} className="absolute right-4 top-4 p-2 bg-white border border-slate-200 rounded-full text-slate-300 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"><Edit2 size={12} /></button>
+              </div>
+            ))}
+            {quickLinks.length < 10 && (
+              <button onClick={onAddLink} className="p-8 border-2 border-dashed border-slate-200 rounded-[40px] text-sm font-black text-slate-400 flex flex-col items-center justify-center gap-3 hover:border-blue-400 hover:text-blue-500 transition-all hover:bg-blue-50/30">
+                <Plus size={32} /> 추가하기
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* 캘린더 */}
+        <section className="bg-white rounded-[50px] border border-slate-200 shadow-2xl overflow-hidden">
+          <div className="p-10 border-b border-slate-100 flex items-center gap-4 bg-slate-50/30">
+            <Calendar size={32} className="text-red-500" />
+            <h3 className="font-black text-slate-800 text-2xl tracking-tight">구글 업무 일정 캘린더</h3>
+          </div>
+          <div className="p-4 sm:p-8 h-[800px] bg-slate-50">
+             <iframe src={calendarEmbedUrl} style={{ border: 0 }} width="100%" height="100%" frameBorder="0" scrolling="no" title="Google Calendar" className="rounded-[40px] border border-slate-200 shadow-2xl bg-white" />
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  // CASE 2: 리스트 전용 뷰
+  const displayList = (activeTab === 'progress' ? inProgressList : activeTab === 'quote' ? quotationList : data)
+    .filter(item => (item.siteName + item.manageNo).toLowerCase().includes(searchTerm.toLowerCase()));
+  
+  return (
+    <div className="max-w-[1920px] mx-auto p-4 sm:p-8 animate-in fade-in duration-300">
+      <div className="bg-white rounded-[60px] border border-slate-200 shadow-2xl overflow-hidden flex flex-col min-h-[900px]">
+        <div className="p-10 sm:p-16 border-b border-slate-100 flex flex-col xl:flex-row justify-between xl:items-center gap-8 bg-slate-50/50">
+          <div className="flex items-center gap-5">
+            <div className={`p-5 rounded-3xl text-white shadow-xl ${activeTab === 'quote' ? 'bg-orange-500' : activeTab === 'progress' ? 'bg-blue-600' : 'bg-slate-900'}`}>
+               <List size={36} />
+            </div>
+            <div>
+              <h3 className="font-black text-slate-900 text-4xl tracking-tighter">
+                {activeTab === 'progress' ? '공사 진행 리스트' : activeTab === 'quote' ? '현장 견적 리스트' : '전체 마스터 데이터베이스'}
+              </h3>
+              <p className="text-slate-400 font-bold mt-1 uppercase tracking-widest text-sm">Total {displayList.length} sites matched</p>
+            </div>
+          </div>
+          <div className="relative w-full xl:w-[600px]">
+            <Search className="absolute left-8 top-6 text-slate-400" size={28} />
+            <input 
+              type="text" 
+              placeholder="현장명, 관리번호로 즉시 검색..." 
+              className="w-full pl-20 pr-10 py-6 bg-white border-2 border-slate-100 rounded-[35px] text-xl focus:outline-none focus:ring-4 focus:ring-blue-100 shadow-inner font-bold" 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="overflow-auto flex-1">
+          <ProjectTable list={displayList} onRowClick={onRowClick} themeColor={activeTab === 'quote' ? 'orange' : 'blue'} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- [SummaryCard] ---
+const SummaryCard = ({ title, count, color, onClick }) => (
+  <button onClick={onClick} className={`w-full bg-white p-10 sm:p-14 rounded-[60px] border ${color === 'blue' ? 'border-blue-100' : 'border-orange-100'} shadow-2xl flex items-center justify-between group hover:scale-[1.03] transition-all`}>
+    <div className="text-left">
+      <p className="text-sm sm:text-lg font-black text-slate-400 mb-3 uppercase tracking-[0.2em]">{title}</p>
+      <p className={`text-7xl sm:text-9xl font-black tracking-tighter leading-none ${color === 'blue' ? 'text-blue-600' : 'text-orange-600'}`}>{count}<span className="text-2xl sm:text-3xl font-bold text-slate-300 ml-4">건</span></p>
+    </div>
+    <div className={`${color === 'blue' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'} p-8 sm:p-12 rounded-[45px] group-hover:rotate-12 transition-transform shadow-lg`}><ArrowRight size={56} /></div>
+  </button>
+);
+
+// --- [ProjectTable] ---
+const ProjectTable = ({ list, onRowClick, themeColor }) => {
+  const formatNum = (num) => parseInt(String(num || '0').replace(/,/g, '')).toLocaleString();
+  return (
+    <table className="w-full border-collapse text-left min-w-[1800px]">
+      <thead className="sticky top-0 z-20">
+        <tr className={`${themeColor === 'blue' ? 'bg-slate-950' : 'bg-orange-600'} text-white text-[15px] font-black uppercase tracking-widest`}>
+          <th className="p-10 border-r border-white/10 w-44">관리번호</th>
+          <th className="p-10 border-r border-white/10 w-32 text-center">관할</th>
+          <th className="p-10 border-r border-white/10 w-[550px]">현장명</th>
+          <th className="p-10 border-r border-white/10 w-[600px]">현장주소</th>
+          <th className="p-10 border-r border-white/10 w-56 text-right">총액(VAT포함)</th>
+          <th className="p-10 border-r border-white/10 w-56 text-right text-emerald-300">수금액</th>
+          <th className="p-10 border-r border-white/10 w-56 text-right text-yellow-300">미수잔금</th>
+          <th className="p-10">특이사항</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100 bg-white">
+        {list.map(item => {
+          const cAmt = parseInt(String(item.contractAmount || '0').replace(/,/g, '')) || 0;
+          const paid = (parseInt(String(item.advancePayment || '0').replace(/,/g, '')) || 0) + (parseInt(String(item.intermediatePayment || '0').replace(/,/g, '')) || 0);
+          const total = cAmt + Math.floor(cAmt * 0.1);
+          return (
+            <tr key={item.id} onClick={() => onRowClick(item)} className="group cursor-pointer hover:bg-slate-50 transition-all">
+              <td className="p-10 font-black text-slate-800 text-xl border-r border-slate-100">{item.manageNo}</td>
+              <td className="p-10 font-bold text-slate-400 text-center border-r border-slate-100">{item.jurisdiction}</td>
+              <td className="p-10 font-black text-slate-950 text-3xl border-r border-slate-100 group-hover:text-blue-600 transition-colors">{item.siteName}</td>
+              <td className="p-10 text-lg text-slate-500 font-medium leading-relaxed border-r border-slate-100">{item.siteAddress || item.bizAddress}</td>
+              <td className="p-10 text-right font-mono font-black text-2xl bg-slate-50/30 border-r border-slate-100 text-slate-800">{formatNum(total)}</td>
+              <td className="p-10 text-right font-mono text-2xl text-emerald-600 font-black border-r border-slate-100">{formatNum(paid)}</td>
+              <td className="p-10 text-right font-mono font-black text-4xl text-red-600 bg-red-50/10">{formatNum(total - paid)}</td>
+              <td className="p-10 text-base text-slate-400 italic truncate max-w-[300px]">{item.memo}</td>
+            </tr>
+          );
+        })}
+        {list.length === 0 && (
+          <tr><td colSpan="8" className="p-60 text-center text-slate-200 font-black text-6xl tracking-widest uppercase">데이터가 없습니다</td></tr>
+        )}
+      </tbody>
+    </table>
+  );
+};
+
+// --- [DetailView: 사장님이 원하신 스타일 완벽 복원] ---
+const DetailView = ({ data, onBack, onSave }) => {
+  const [formData, setFormData] = useState(data);
+  const [siteContacts, setSiteContacts] = useState([]);
+  const [consultationLogs, setConsultationLogs] = useState([]);
+  const activeSiteId = data.id || null;
+
+  useEffect(() => {
+    if (!activeSiteId) return;
+    const cRef = collection(db, 'artifacts', appId, 'public', 'data', `contacts_${activeSiteId}`);
+    const unsubC = onSnapshot(cRef, (s) => setSiteContacts(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+    
+    const lRef = collection(db, 'artifacts', appId, 'public', 'data', `logs_${activeSiteId}`);
+    const unsubL = onSnapshot(query(lRef, orderBy('createdAt', 'desc')), (s) => setConsultationLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+    return () => { unsubC(); unsubL(); };
+  }, [activeSiteId]);
+
+  const contractAmt = parseInt(String(formData.contractAmount || '0').replace(/,/g, '')) || 0;
+  const advPay = parseInt(String(formData.advancePayment || '0').replace(/,/g, '')) || 0;
+  const interPay = parseInt(String(formData.intermediatePayment || '0').replace(/,/g, '')) || 0;
+  const total = contractAmt + Math.floor(contractAmt * 0.1);
+  const balance = total - advPay - interPay;
+
+  const handleFormChange = (field, value) => {
+    if (['contractAmount', 'advancePayment', 'intermediatePayment'].includes(field)) {
+      setFormData(prev => ({ ...prev, [field]: value.replace(/[^0-9]/g, '') }));
+    } else {
+      setFormData(prev => ({ ...prev, [field]: value }));
+    }
+  };
+
+  const updateSub = async (type, sub) => {
+    if (!activeSiteId) return alert("현장 기본 정보를 먼저 저장(ID 생성)해 주세요.");
+    const path = type === 'contact' ? `contacts_${activeSiteId}` : `logs_${activeSiteId}`;
+    const ref = collection(db, 'artifacts', appId, 'public', 'data', path);
+    if (sub.id) await setDoc(doc(ref, sub.id), { ...sub, updatedAt: serverTimestamp() }, { merge: true });
+    else await addDoc(ref, { ...sub, createdAt: serverTimestamp() });
+  };
+
+  return (
+    <div className="max-w-[1600px] mx-auto p-6 animate-in fade-in slide-in-from-bottom-10 pb-40 space-y-16">
+      <div className="bg-white rounded-[70px] shadow-2xl overflow-hidden border border-slate-200">
+        <div className="p-12 sm:p-24 border-b border-slate-100 bg-slate-950 flex flex-col lg:flex-row justify-between items-center gap-12 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/10 blur-[100px] -mr-48 -mt-48" />
+          <div className="space-y-8 z-10 text-center lg:text-left w-full lg:w-auto">
+            <button onClick={onBack} className="flex items-center gap-3 text-slate-500 hover:text-white font-black text-sm uppercase tracking-widest mx-auto lg:mx-0 transition-colors"><ChevronLeft size={24} /> BACK TO LIST</button>
+            <h1 className="text-5xl sm:text-8xl font-black text-white tracking-tighter leading-none">
+              {formData.siteName || '새 현장 등록'} <br/>
+              <span className="text-blue-500 font-mono text-3xl sm:text-5xl opacity-90 mt-6 block tracking-normal">[{formData.manageNo || 'ID-WAITING'}]</span>
+            </h1>
+          </div>
+          <div className="flex gap-6 z-10 shrink-0 scale-110 sm:scale-125">
+            <StatusBadge label="현재 상태" value={String(formData.manageNo).replace(/-/g, '').length >= 6 ? '견적중' : '진행중'} color={String(formData.manageNo).replace(/-/g, '').length >= 6 ? 'orange' : 'blue'} />
+            <StatusBadge label="미수 잔금" value={`${balance.toLocaleString()}원`} color="red" />
+          </div>
+        </div>
+
+        <div className="p-10 sm:p-20 space-y-24">
+          <section>
+            <h2 className="text-4xl font-black mb-12 text-slate-900 flex items-center gap-5"><div className="w-5 h-14 bg-blue-600 rounded-full" /> 현장 개요 정보</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-0 border border-slate-200 rounded-[56px] overflow-hidden shadow-2xl bg-white">
+              <InputBox label="관리번호" value={formData.manageNo} onChange={(v) => handleFormChange('manageNo', v)} placeholder="YY-NN 또는 숫자" />
+              <DisplayBox label="진행 상태 (자동)" value={String(formData.manageNo).replace(/-/g, '').length >= 6 ? '견적중' : '진행중'} color="text-blue-700" />
+              <InputBox label="관할 소방서" value={formData.jurisdiction} onChange={(v) => handleFormChange('jurisdiction', v)} />
+              <InputBox label="현장명 (회사명)" value={formData.siteName} onChange={(v) => handleFormChange('siteName', v)} fullWidth />
+              <InputBox label="사업장 소재지 주소" value={formData.bizAddress} onChange={(v) => handleFormChange('bizAddress', v)} fullWidth />
+              <InputBox label="공사 현장 실제 주소" value={formData.siteAddress} onChange={(v) => handleFormChange('siteAddress', v)} fullWidth />
+              <InputBox label="현장 특이사항 및 메모" value={formData.memo} onChange={(v) => handleFormChange('memo', v)} fullWidth multiline placeholder="내용을 자유롭게 입력하거나 원노트에서 붙여넣으세요." />
+            </div>
+          </section>
+
+          <section>
+            <h2 className="text-4xl font-black mb-12 text-slate-900 flex items-center gap-5"><div className="w-5 h-14 bg-emerald-500 rounded-full" /> 금전 및 수금 관리</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-0 border border-slate-200 rounded-[56px] overflow-hidden shadow-2xl bg-white">
+              <InputBox label="계약 금액 (공급가)" value={contractAmt.toLocaleString()} onChange={(v) => handleFormChange('contractAmount', v)} highlight />
+              <DisplayBox label="부가세 (10%)" value={(contractAmt * 0.1).toLocaleString()} />
+              <DisplayBox label="총 계약금액 (합계)" value={total.toLocaleString()} bg="bg-blue-50/50" color="text-blue-800" />
+              <InputBox label="입금액 (선수금)" value={advPay.toLocaleString()} onChange={(v) => handleFormChange('advancePayment', v)} />
+              <InputBox label="입금액 (중도금)" value={interPay.toLocaleString()} onChange={(v) => handleFormChange('intermediatePayment', v)} />
+              <DisplayBox label="최종 미수잔금" value={balance.toLocaleString()} bg="bg-red-50/50" color="text-red-700" />
+            </div>
+          </section>
+
+          {activeSiteId ? (
+            <>
+              <section>
+                <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-6 mb-12 px-6">
+                  <h2 className="text-4xl font-black text-slate-900 flex items-center gap-5"><div className="w-5 h-14 bg-indigo-500 rounded-full" /> 현장 관계인 관리</h2>
+                  <button onClick={() => updateSub('contact', { company: '', name: '', position: '', mobile: '', note: '' })} className="px-10 py-5 bg-indigo-700 text-white rounded-[32px] font-black flex items-center gap-4 shadow-2xl transition-all hover:scale-105 active:scale-95 w-fit">
+                    <Plus size={28} /> 관계인 추가
+                  </button>
+                </div>
+                <div className="overflow-x-auto border border-slate-200 rounded-[56px] shadow-2xl bg-white">
+                  <table className="w-full border-collapse min-w-[1200px]">
+                    <thead className="bg-indigo-700 text-white uppercase text-sm font-black tracking-widest">
+                      <tr><th className="p-8">회사명</th><th className="p-8 w-44">이름</th><th className="p-8 w-44">직위</th><th className="p-8">모바일</th><th className="p-8">비고</th><th className="p-8 w-24 bg-white"></th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-bold text-lg">
+                      {siteContacts.map(c => (
+                        <tr key={c.id} className="hover:bg-indigo-50/30 transition-colors group">
+                          <td className="p-0 border-r border-slate-100"><input type="text" className="w-full p-8 outline-none font-black bg-transparent" placeholder="회사명" value={c.company} onChange={e => updateSub('contact', {...c, company: e.target.value})} /></td>
+                          <td className="p-0 border-r border-slate-100"><input type="text" className="w-full p-8 outline-none text-center bg-transparent" placeholder="이름" value={c.name} onChange={e => updateSub('contact', {...c, name: e.target.value})} /></td>
+                          <td className="p-0 border-r border-slate-100"><input type="text" className="w-full p-8 outline-none text-center bg-transparent" placeholder="직위" value={c.position} onChange={e => updateSub('contact', {...c, position: e.target.value})} /></td>
+                          <td className="p-0 border-r border-slate-100"><input type="text" className="w-full p-8 outline-none text-center text-blue-600 font-mono bg-transparent" placeholder="010-0000-0000" value={c.mobile} onChange={e => updateSub('contact', {...c, mobile: e.target.value})} /></td>
+                          <td className="p-0"><input type="text" className="w-full p-8 outline-none bg-transparent" placeholder="..." value={c.note || ''} onChange={e => updateSub('contact', {...c, note: e.target.value})} /></td>
+                          <td className="p-8 text-center"><button onClick={async () => await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', `contacts_${activeSiteId}`, c.id))} className="text-slate-200 hover:text-red-500 transition-colors"><Trash2 size={28}/></button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section>
+                <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-6 mb-12 px-6">
+                  <h2 className="text-4xl font-black text-slate-900 flex items-center gap-5"><div className="w-5 h-14 bg-cyan-600 rounded-full" /> 상세 업무 및 상담 일지</h2>
+                  <button onClick={() => {
+                    const content = prompt("간단한 일지 내용을 입력하거나 작성 버튼을 누른 후 표에서 수정하세요:");
+                    updateSub('log', { date: new Date().toISOString().split('T')[0], type: '📞 통화', content: content || '' });
+                  }} className="px-10 py-5 bg-cyan-700 text-white rounded-[32px] font-black flex items-center gap-4 shadow-2xl transition-all hover:scale-105 active:scale-95 w-fit">
+                    <Plus size={28} /> 일지 추가
+                  </button>
+                </div>
+                <div className="overflow-x-auto border border-slate-200 rounded-[56px] shadow-2xl bg-white">
+                  <table className="w-full border-collapse min-w-[1200px] font-bold text-lg">
+                    <thead className="bg-cyan-700 text-white uppercase text-sm font-black tracking-widest">
+                      <tr><th className="p-8 w-56 text-center">상담일</th><th className="p-8 w-64 text-center">업무 형태</th><th className="p-8">내용</th><th className="p-8 w-24 bg-white"></th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {consultationLogs.map(l => (
+                        <tr key={l.id} className="hover:bg-cyan-50/30 transition-colors">
+                          <td className="p-0 border-r border-slate-100"><input type="date" className="w-full p-8 outline-none font-black text-center text-xl bg-transparent" value={l.date} onChange={e => updateSub('log', {...l, date: e.target.value})} /></td>
+                          <td className="p-0 border-r border-slate-100">
+                            <select className="w-full p-8 outline-none bg-transparent font-black text-center appearance-none" value={l.type} onChange={e => updateSub('log', {...l, type: e.target.value})}>
+                               {["📞 통화", "🚗 방문", "📧 메일", "🏗️ 공사", "📄 서류", "💰 입금"].map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                          </td>
+                          <td className="p-0 border-r border-slate-100"><textarea rows="1" className="w-full p-8 outline-none font-bold resize-none overflow-hidden leading-relaxed bg-transparent" value={l.content} onChange={e => updateSub('log', {...l, content: e.target.value})} onInput={e => {e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px';}} /></td>
+                          <td className="p-8 text-center"><button onClick={async () => await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', `logs_${activeSiteId}`, l.id))} className="text-slate-200 hover:text-red-500 transition-colors"><Trash2 size={28}/></button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </>
+          ) : (
+            <div className="p-40 bg-slate-50 rounded-[70px] border-4 border-dashed border-slate-200 text-center text-slate-300 font-black text-4xl">먼저 상단의 [최종 데이터 저장]을 눌러 현장을 등록해 주세요.</div>
+          )}
+
+          <div className="flex justify-center pt-20">
+            <button 
+              onClick={() => onSave(formData)} 
+              className="px-40 lg:px-60 py-10 lg:py-12 bg-slate-950 text-white rounded-[40px] hover:bg-black hover:scale-105 transition-all shadow-[0_50px_100px_rgba(0,0,0,0.5)] font-black text-3xl lg:text-5xl active:scale-95"
+            >
+              현장 마스터 정보 저장
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- [UI Utility Components] ---
+
+const InputBox = ({ label, value, onChange, fullWidth = false, highlight = false, multiline = false, placeholder = "" }) => {
+  const ref = useRef(null);
+  useEffect(() => { if (multiline && ref.current) { ref.current.style.height = 'auto'; ref.current.style.height = ref.current.scrollHeight + 'px'; } }, [value, multiline]);
+  return (
+    <div className={`flex flex-col border-b border-r border-slate-100 py-10 px-14 group hover:bg-slate-50 transition-colors ${fullWidth ? 'md:col-span-2 lg:col-span-3 border-r-0' : ''}`}>
+      <label className="text-[16px] font-black text-slate-400 uppercase mb-4 group-focus-within:text-blue-600 tracking-[0.2em] leading-none">{label}</label>
+      {multiline ? <textarea ref={ref} className="bg-transparent outline-none border-none p-0 text-3xl font-black resize-none overflow-hidden text-slate-800 leading-tight" value={value} onChange={(e) => onChange(e.target.value)} rows={1} placeholder={placeholder} /> : <input type="text" className={`bg-transparent outline-none border-none p-0 text-3xl font-black ${highlight ? 'text-blue-800' : 'text-slate-900'}`} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />}
+    </div>
+  );
+};
+
+const DisplayBox = ({ label, value, color = "text-slate-700", bg = "bg-white" }) => (
+  <div className={`flex flex-col border-b border-r border-slate-100 py-10 px-14 ${bg}`}>
+    <span className="text-[16px] font-black text-slate-300 uppercase mb-4 tracking-[0.2em] leading-none">{label}</span>
+    <span className={`text-3xl font-black ${color}`}>{value}</span>
+  </div>
+);
+
+const StatusBadge = ({ label, value, color }) => (
+  <div className={`bg-white/10 backdrop-blur-md p-8 rounded-[40px] border border-white/20 text-center min-w-[200px] shadow-2xl`}>
+    <p className={`text-[12px] font-black uppercase tracking-[0.3em] mb-2 ${color === 'red' ? 'text-red-400' : 'text-slate-400'}`}>{label}</p>
+    <p className={`text-4xl font-black ${color === 'blue' ? 'text-blue-400' : color === 'orange' ? 'text-orange-400' : 'text-red-500'}`}>{value}</p>
+  </div>
+);
+
+const LinkEditModal = ({ link, onSave, onDelete, onClose }) => {
   const [title, setTitle] = useState(link?.title || '');
   const [url, setUrl] = useState(link?.url || '');
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/95 backdrop-blur-xl p-6">
-       <div className="bg-white w-full max-w-lg rounded-[50px] p-12 space-y-10 shadow-2xl">
-          <div className="flex justify-between items-center">
-            <h3 className="text-3xl font-black tracking-tighter">바로가기 설정</h3>
-            <button onClick={onClose} className="text-slate-300 hover:text-slate-900"><X size={32}/></button>
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/90 backdrop-blur-3xl animate-in fade-in duration-500">
+      <div className="bg-white w-full max-w-2xl rounded-[80px] shadow-[0_50px_100px_rgba(0,0,0,0.8)] overflow-hidden">
+        <div className="p-10 lg:p-14 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+          <h3 className="text-3xl lg:text-4xl font-black text-slate-900 tracking-tighter leading-none">QUICK LINK</h3>
+          <button onClick={onClose} className="p-4 text-slate-300 hover:text-slate-900 transition-colors"><X size={32}/></button>
+        </div>
+        <div className="p-10 lg:p-14 space-y-12">
+          <div className="space-y-4">
+            <label className="text-[14px] font-black text-slate-400 uppercase tracking-widest ml-3">아이콘 제목</label>
+            <input type="text" className="w-full px-10 py-8 bg-slate-100 border-none rounded-[40px] focus:ring-8 focus:ring-blue-100 outline-none font-black text-slate-800 text-3xl" value={title} onChange={(e) => setTitle(e.target.value)} />
           </div>
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] ml-2">아이콘 제목</span>
-              <input className="w-full p-6 bg-slate-50 rounded-3xl outline-none font-black text-2xl border border-slate-100" placeholder="제목" value={title} onChange={e => setTitle(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] ml-2">이동 URL</span>
-              <input className="w-full p-6 bg-slate-50 rounded-3xl outline-none font-mono text-lg border border-slate-100" placeholder="https://..." value={url} onChange={e => setUrl(e.target.value)} />
-            </div>
+          <div className="space-y-4">
+            <label className="text-[14px] font-black text-slate-400 uppercase tracking-widest ml-3">URL (https://...)</label>
+            <input type="text" className="w-full px-10 py-8 bg-slate-100 border-none rounded-[40px] focus:ring-8 focus:ring-blue-100 outline-none font-bold text-slate-600 font-mono text-xl" value={url} onChange={(e) => setUrl(e.target.value)} />
           </div>
-          <div className="flex flex-col gap-4 pt-4">
-            <button onClick={() => onSave(title, url)} className="w-full p-6 bg-blue-600 text-white rounded-3xl font-black text-xl shadow-xl hover:bg-blue-700 transition-all">설정 저장하기</button>
-            {link && <button onClick={() => onDelete(link.id)} className="w-full p-4 text-red-500 font-bold text-sm underline decoration-2 underline-offset-4">항목 삭제</button>}
-            <button onClick={onClose} className="w-full p-4 font-black text-slate-400">닫기</button>
+        </div>
+        <div className="p-10 lg:p-14 pt-0 flex justify-between gap-4">
+          {link ? <button onClick={() => onDelete(link.id)} className="text-red-500 font-black hover:bg-red-50 px-8 py-4 rounded-[30px] text-xl">DELETE</button> : <div />}
+          <div className="flex gap-4">
+            <button onClick={onClose} className="px-6 lg:px-10 py-4 lg:py-5 text-slate-400 font-black text-xl hover:text-slate-900">CLOSE</button>
+            <button onClick={() => onSave(title, url)} className="px-10 lg:px-20 py-5 lg:py-6 bg-blue-600 text-white font-black rounded-[40px] hover:bg-blue-700 shadow-2xl text-2xl">SAVE</button>
           </div>
-       </div>
+        </div>
+      </div>
     </div>
   );
 };
